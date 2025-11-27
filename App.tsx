@@ -4,8 +4,8 @@ import { ImageCard } from './components/ImageCard';
 import { generateProductImage, fileToBase64 } from './services/geminiService';
 import { applyFrameAndExport, downloadBlob } from './utils/canvasUtils';
 
-// Simple UUID generator since we can't import libraries not specified
-const simpleId = () => Math.random().toString(36).substr(2, 9);
+// Simple UUID generator
+const simpleId = () => Math.random().toString(36).substring(2, 11);
 
 const App: React.FC = () => {
   const [hasKey, setHasKey] = useState(false);
@@ -34,21 +34,22 @@ const App: React.FC = () => {
   }, [frameFile]);
 
   const checkApiKey = async () => {
-    // Cast to any to avoid type conflict with existing Window definition or missing definition
-    if ((window as any).aistudio) {
-      const selected = await (window as any).aistudio.hasSelectedApiKey();
+    if (window.aistudio) {
+      const selected = await window.aistudio.hasSelectedApiKey();
       setHasKey(selected);
     } else {
-       // Fallback for development if window.aistudio isn't present (e.g. local dev outside of Google env)
-       // In a real scenario, we might prompt for an env var or show an error.
-       // For this prompt's specific context, we assume the environment provides it or we wait.
-       console.warn("window.aistudio not found. Assuming development mode or waiting for injection.");
+       // Fallback for local development: Check for environment variables
+       if (process.env.API_KEY) {
+         setHasKey(true);
+       } else {
+         console.warn("window.aistudio not found and no API keys detected in environment.");
+       }
     }
   };
 
   const handleKeySelection = async () => {
-    if ((window as any).aistudio) {
-      await (window as any).aistudio.openSelectKey();
+    if (window.aistudio) {
+      await window.aistudio.openSelectKey();
       // Assume success as per instructions
       setHasKey(true);
     }
@@ -56,7 +57,7 @@ const App: React.FC = () => {
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      // Explicitly cast to File[] to fix type inference issue where it might be inferred as unknown[]
+      // Explicitly cast to File[] to fix type inference issue
       const files = Array.from(e.target.files) as File[];
       const newImages: ProcessedImage[] = files.map(file => ({
         id: simpleId(),
@@ -82,10 +83,15 @@ const App: React.FC = () => {
   };
 
   const processImage = async (image: ProcessedImage) => {
-    // Check key again just in case
-    if (!process.env.API_KEY) {
-        // If API key is not in env (e.g. key selection didn't inject it yet?), we might fail.
-        // But per instructions, it is injected automatically after selection.
+    const apiKey = process.env.API_KEY;
+
+    if (!apiKey) {
+       setImages(prev => prev.map(img => img.id === image.id ? { 
+        ...img, 
+        status: 'error', 
+        error: "API Key missing" 
+      } : img));
+      return;
     }
 
     setImages(prev => prev.map(img => img.id === image.id ? { ...img, status: 'processing', error: undefined } : img));
@@ -96,7 +102,7 @@ const App: React.FC = () => {
         base64, 
         (image.originalFile as File).type, 
         selectedRatio, 
-        process.env.API_KEY || ''
+        apiKey
       );
 
       setImages(prev => prev.map(img => img.id === image.id ? { 
@@ -116,15 +122,13 @@ const App: React.FC = () => {
 
   const processAllPending = async () => {
     if (!hasKey) {
-        await handleKeySelection();
+        if (window.aistudio) {
+            await handleKeySelection();
+        }
         return;
     }
 
     setIsProcessingBatch(true);
-    
-    // Process purely pending images sequentially to avoid rate limits? 
-    // Or parallel? Gemini Pro usually has good limits but let's do 2 at a time or just parallel.
-    // Let's do parallel for better UX, assuming quota is sufficient for "Paid" key.
     
     const pendingImages = images.filter(img => img.status === 'pending' || img.status === 'error');
     
@@ -164,7 +168,7 @@ const App: React.FC = () => {
     }
   };
 
-  // If no key selected, show blocking UI
+  // If no key selected and not configured in env, show blocking UI
   if (!hasKey) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
@@ -176,12 +180,19 @@ const App: React.FC = () => {
           <p className="text-gray-600 mb-6">
             To use the professional studio generation features (Gemini 3 Pro), you need to select a valid API key associated with a paid Google Cloud project.
           </p>
-          <button 
-            onClick={handleKeySelection}
-            className="w-full bg-brand-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-brand-700 transition-colors shadow-lg shadow-brand-500/30"
-          >
-            Select API Key
-          </button>
+          {window.aistudio ? (
+            <button 
+                onClick={handleKeySelection}
+                className="w-full bg-brand-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-brand-700 transition-colors shadow-lg shadow-brand-500/30"
+            >
+                Select API Key
+            </button>
+          ) : (
+            <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm text-amber-800">
+                <p><strong>Environment Configuration Missing</strong></p>
+                <p className="mt-1">Please set <code>API_KEY</code> in your environment variables (e.g., .env.local).</p>
+            </div>
+          )}
           <div className="mt-6 text-xs text-gray-400">
             <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="underline hover:text-gray-600">
               Learn more about billing and API keys
