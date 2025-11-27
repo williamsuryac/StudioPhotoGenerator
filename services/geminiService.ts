@@ -1,28 +1,52 @@
 
 import { GoogleGenAI } from "@google/genai";
-import { AspectRatio } from "../types";
+import { AspectRatio, BackgroundOption } from "../types";
 
-const SYSTEM_PROMPT = `
+const BASE_PROMPT = `
 Transform this product photo into a high-quality, studio-style image. 
 Use soft, balanced lighting, remove any background distractions, apply subtle color correction, and give it a clean, modern look suitable for an e-commerce catalog. 
 Keep the product's shape, texture, and colors true to life.
 `;
 
+const getBackgroundInstruction = (option: BackgroundOption, customColor?: string): string => {
+  switch (option) {
+    case 'white':
+      return "Ensure the background is pure, solid white (#FFFFFF).";
+    case 'black':
+      return "Ensure the background is pure, solid black (#000000).";
+    case 'gray':
+      return "Ensure the background is a neutral, solid gray.";
+    case 'green':
+      return "Ensure the background is a solid bright green (#00FF00) suitable for chroma keying.";
+    case 'transparent':
+      return "Ensure the background is transparent (remove background).";
+    case 'custom':
+      return `Ensure the background is a solid color with hex code ${customColor || '#FFFFFF'}.`;
+    default:
+      return "Ensure the background is pure, solid white.";
+  }
+};
+
 export const generateProductImage = async (
   base64Image: string,
   mimeType: string,
-  ratio: AspectRatio
+  ratio: AspectRatio,
+  bgOption: BackgroundOption = 'white',
+  customColor?: string
 ): Promise<string> => {
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
+    const backgroundPrompt = getBackgroundInstruction(bgOption, customColor);
+    const fullPrompt = `${BASE_PROMPT}\n${backgroundPrompt}`;
+
     // Using gemini-3-pro-image-preview (Nano Banana Pro) for high quality results
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-image-preview',
       contents: {
         parts: [
           {
-            text: SYSTEM_PROMPT
+            text: fullPrompt
           },
           {
             inlineData: {

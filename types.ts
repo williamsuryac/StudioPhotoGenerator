@@ -1,6 +1,8 @@
 
 export type AspectRatio = '1:1' | '3:4' | '4:3' | '16:9' | '9:16';
 
+export type BackgroundOption = 'white' | 'black' | 'gray' | 'green' | 'transparent' | 'custom';
+
 export interface ProcessedImage {
   id: string;
   originalFile: File;
@@ -13,4 +15,6 @@ export interface ProcessedImage {
 export interface GenerationSettings {
   aspectRatio: AspectRatio;
   promptModifier?: string;
+  background: BackgroundOption;
+  customColor?: string;
 }

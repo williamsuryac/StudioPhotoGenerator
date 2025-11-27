@@ -1,9 +1,9 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { AspectRatio, ProcessedImage } from './types';
+import { AspectRatio, ProcessedImage, BackgroundOption } from './types';
 import { ImageCard } from './components/ImageCard';
+import { FullscreenModal } from './components/FullscreenModal';
 import { generateProductImage, fileToBase64 } from './services/geminiService';
-import { applyFrameAndExport, downloadBlob } from './utils/canvasUtils';
+import { applyFrameAndExport, downloadBlob, downloadZip } from './utils/canvasUtils';
 
 // Simple UUID generator
 const simpleId = () => Math.random().toString(36).substring(2, 11);
@@ -30,11 +30,19 @@ const getEnvironmentApiKey = () => {
 const App: React.FC = () => {
   const [hasKey, setHasKey] = useState(false);
   const [images, setImages] = useState<ProcessedImage[]>([]);
+  
+  // Settings
   const [selectedRatio, setSelectedRatio] = useState<AspectRatio>('1:1');
+  const [bgOption, setBgOption] = useState<BackgroundOption>('white');
+  const [customColor, setCustomColor] = useState('#3b82f6'); // default to brand blue
+  
   const [frameFile, setFrameFile] = useState<File | null>(null);
   const [framePreviewUrl, setFramePreviewUrl] = useState<string | null>(null);
   const [isProcessingBatch, setIsProcessingBatch] = useState(false);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
+
+  // Fullscreen State
+  const [fullscreenImage, setFullscreenImage] = useState<ProcessedImage | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const frameInputRef = useRef<HTMLInputElement>(null);
@@ -118,7 +126,9 @@ const App: React.FC = () => {
       const generatedUrl = await generateProductImage(
         base64, 
         (image.originalFile as File).type, 
-        selectedRatio
+        selectedRatio,
+        bgOption,
+        customColor
       );
 
       setImages(prev => prev.map(img => img.id === image.id ? { 
@@ -167,14 +177,18 @@ const App: React.FC = () => {
     const completedImages = images.filter(i => i.status === 'completed' && i.generatedUrl);
     
     try {
-      for (const img of completedImages) {
-        if (img.generatedUrl) {
-           const blob = await applyFrameAndExport(img.generatedUrl, framePreviewUrl);
-           if (blob) {
-             downloadBlob(blob, `studio-gen-${img.id}.png`);
-             await new Promise(r => setTimeout(r, 200)); 
-           }
-        }
+      // Create blobs for all images first
+      const blobPromises = completedImages.map(async (img) => {
+        if (!img.generatedUrl) return null;
+        const blob = await applyFrameAndExport(img.generatedUrl, framePreviewUrl);
+        return blob ? { blob, name: `kana-enhancer-${img.id}.png` } : null;
+      });
+
+      const results = await Promise.all(blobPromises);
+      const validBlobs = results.filter((item): item is { blob: Blob; name: string } => item !== null);
+
+      if (validBlobs.length > 0) {
+        await downloadZip(validBlobs);
       }
     } catch (e) {
       console.error("Batch download error", e);
@@ -226,10 +240,7 @@ const App: React.FC = () => {
       <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="bg-gradient-to-tr from-brand-600 to-indigo-500 p-2 rounded-lg text-white">
-               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></svg>
-            </div>
-            <h1 className="text-xl font-bold text-gray-900 tracking-tight">StudioGen <span className="text-brand-600">Pro</span></h1>
+            <h1 className="text-xl font-bold text-gray-900 tracking-tight">KanaEnhancer <span style={{ color: '#DC2626' }}>Pro</span></h1>
           </div>
           <div className="flex items-center gap-4">
              <a href="#" className="text-sm font-medium text-gray-500 hover:text-gray-900 hidden sm:block">Documentation</a>
@@ -255,7 +266,7 @@ const App: React.FC = () => {
                <label className="block text-sm font-semibold text-gray-700 mb-3">1. Upload Products</label>
                <div 
                  onClick={() => fileInputRef.current?.click()}
-                 className="border-2 border-dashed border-gray-300 rounded-xl p-8 hover:border-brand-500 hover:bg-brand-50 transition-all cursor-pointer text-center group"
+                 className="border-2 border-dashed border-gray-300 rounded-xl p-8 hover:border-brand-500 hover:bg-brand-50 transition-all cursor-pointer text-center group h-[300px] flex flex-col items-center justify-center"
                >
                  <input 
                    type="file" 
@@ -274,58 +285,138 @@ const App: React.FC = () => {
             </div>
 
             {/* Settings Area */}
-            <div className="flex-1 border-l border-gray-100 pl-0 md:pl-8">
-               <label className="block text-sm font-semibold text-gray-700 mb-3">2. Configuration</label>
+            <div className="flex-1 border-l border-gray-100 pl-0 md:pl-8 flex flex-col gap-6">
+               <label className="block text-sm font-semibold text-gray-700 -mb-3">2. Configuration</label>
                
-               <div className="space-y-6">
-                 {/* Aspect Ratio */}
-                 <div>
-                   <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Output Ratio</span>
-                   <div className="flex flex-wrap gap-2 mt-2">
-                     {(['1:1', '3:4', '4:3', '9:16', '16:9'] as AspectRatio[]).map(ratio => (
-                       <button
-                         key={ratio}
-                         onClick={() => setSelectedRatio(ratio)}
-                         className={`px-3 py-1.5 text-sm rounded-md border transition-all ${
-                           selectedRatio === ratio 
-                             ? 'bg-brand-50 border-brand-500 text-brand-700 font-medium ring-1 ring-brand-500' 
-                             : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
-                         }`}
-                       >
-                         {ratio}
-                       </button>
-                     ))}
-                   </div>
+               {/* Aspect Ratio */}
+               <div>
+                 <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Output Ratio</span>
+                 <div className="flex flex-wrap gap-2 mt-2">
+                   {(['1:1', '3:4', '4:3', '9:16', '16:9'] as AspectRatio[]).map(ratio => (
+                     <button
+                       key={ratio}
+                       onClick={() => setSelectedRatio(ratio)}
+                       className={`px-3 py-1.5 text-sm rounded-md border transition-all ${
+                         selectedRatio === ratio 
+                           ? 'bg-brand-50 border-brand-500 text-brand-700 font-medium ring-1 ring-brand-500' 
+                           : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+                       }`}
+                     >
+                       {ratio}
+                     </button>
+                   ))}
                  </div>
+               </div>
 
-                 {/* Frame Upload */}
-                 <div>
-                   <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Frame Overlay (Optional)</span>
-                   <div className="mt-2 flex items-center gap-3">
+               {/* Background Color */}
+               <div>
+                 <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Background</span>
+                 <div className="flex flex-wrap gap-3 mt-2">
+                    {/* White */}
+                    <button 
+                      onClick={() => setBgOption('white')}
+                      className={`w-10 h-10 rounded-full border shadow-sm flex items-center justify-center transition-all ${bgOption === 'white' ? 'ring-2 ring-offset-2 ring-brand-500 border-gray-300' : 'border-gray-200 hover:scale-110'}`}
+                      title="White"
+                    >
+                      <div className="w-full h-full rounded-full bg-white"></div>
+                    </button>
+
+                    {/* Black */}
+                    <button 
+                      onClick={() => setBgOption('black')}
+                      className={`w-10 h-10 rounded-full border shadow-sm flex items-center justify-center transition-all ${bgOption === 'black' ? 'ring-2 ring-offset-2 ring-brand-500 border-black' : 'border-gray-200 hover:scale-110'}`}
+                      title="Black"
+                    >
+                      <div className="w-full h-full rounded-full bg-black"></div>
+                    </button>
+
+                    {/* Gray */}
+                    <button 
+                      onClick={() => setBgOption('gray')}
+                      className={`w-10 h-10 rounded-full border shadow-sm flex items-center justify-center transition-all ${bgOption === 'gray' ? 'ring-2 ring-offset-2 ring-brand-500 border-gray-400' : 'border-gray-200 hover:scale-110'}`}
+                      title="Gray"
+                    >
+                      <div className="w-full h-full rounded-full bg-gray-400"></div>
+                    </button>
+
+                    {/* Green Screen */}
+                    <button 
+                      onClick={() => setBgOption('green')}
+                      className={`w-10 h-10 rounded-full border shadow-sm flex items-center justify-center transition-all ${bgOption === 'green' ? 'ring-2 ring-offset-2 ring-brand-500 border-green-500' : 'border-gray-200 hover:scale-110'}`}
+                      title="Green Screen"
+                    >
+                      <div className="w-full h-full rounded-full bg-[#00FF00]"></div>
+                    </button>
+
+                    {/* Transparent */}
+                    <button 
+                      onClick={() => setBgOption('transparent')}
+                      className={`w-10 h-10 rounded-full border shadow-sm flex items-center justify-center transition-all overflow-hidden ${bgOption === 'transparent' ? 'ring-2 ring-offset-2 ring-brand-500 border-gray-300' : 'border-gray-200 hover:scale-110'}`}
+                      title="Transparent"
+                    >
+                      <div className="w-full h-full bg-white">
+                        <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+                            <defs>
+                            <pattern id="checkerboard" x="0" y="0" width="10" height="10" patternUnits="userSpaceOnUse">
+                                <rect x="0" y="0" width="5" height="5" fill="#e2e8f0" />
+                                <rect x="5" y="5" width="5" height="5" fill="#e2e8f0" />
+                            </pattern>
+                            </defs>
+                            <rect width="100%" height="100%" fill="url(#checkerboard)" />
+                        </svg>
+                      </div>
+                    </button>
+
+                    {/* Custom */}
+                    <div className="relative">
                       <button 
-                        onClick={() => frameInputRef.current?.click()}
-                        className="text-sm bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-md transition-colors flex items-center gap-2"
+                        onClick={() => setBgOption('custom')}
+                        className={`w-10 h-10 rounded-full border shadow-sm flex items-center justify-center transition-all overflow-hidden ${bgOption === 'custom' ? 'ring-2 ring-offset-2 ring-brand-500 border-gray-300' : 'border-gray-200 hover:scale-110'}`}
+                        title="Custom Color"
                       >
-                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-                         {frameFile ? 'Change Frame' : 'Upload Frame'}
+                         <div className="w-full h-full" style={{ backgroundColor: customColor }}></div>
+                         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white mix-blend-difference"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+                         </div>
                       </button>
-                      <input 
-                        type="file" 
-                        accept="image/png" 
-                        ref={frameInputRef} 
-                        className="hidden" 
-                        onChange={handleFrameUpload} 
-                      />
-                      {frameFile && (
-                        <div className="flex items-center gap-2 bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs border border-indigo-100">
-                          <span className="truncate max-w-[100px]">{frameFile.name}</span>
-                          <button onClick={removeFrame} className="text-indigo-400 hover:text-indigo-900">
-                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-                          </button>
-                        </div>
+                      {bgOption === 'custom' && (
+                        <input 
+                            type="color" 
+                            value={customColor}
+                            onChange={(e) => setCustomColor(e.target.value)}
+                            className="absolute opacity-0 inset-0 w-full h-full cursor-pointer"
+                        />
                       )}
-                   </div>
-                   <p className="text-xs text-gray-400 mt-1.5">Upload a transparent PNG to overlay on generated images.</p>
+                    </div>
+                 </div>
+               </div>
+
+               {/* Frame Upload */}
+               <div>
+                 <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Frame Overlay (Optional)</span>
+                 <div className="mt-2 flex items-center gap-3">
+                    <button 
+                      onClick={() => frameInputRef.current?.click()}
+                      className="text-sm bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-md transition-colors flex items-center gap-2"
+                    >
+                       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                       {frameFile ? 'Change Frame' : 'Upload Frame'}
+                    </button>
+                    <input 
+                      type="file" 
+                      accept="image/png" 
+                      ref={frameInputRef} 
+                      className="hidden" 
+                      onChange={handleFrameUpload} 
+                    />
+                    {frameFile && (
+                      <div className="flex items-center gap-2 bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs border border-indigo-100">
+                        <span className="truncate max-w-[100px]">{frameFile.name}</span>
+                        <button onClick={removeFrame} className="text-indigo-400 hover:text-indigo-900">
+                           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                        </button>
+                      </div>
+                    )}
                  </div>
                </div>
             </div>
@@ -369,6 +460,7 @@ const App: React.FC = () => {
                   frameUrl={framePreviewUrl}
                   onRegenerate={handleRegenerate}
                   onRemove={removeImage}
+                  onFullscreen={setFullscreenImage}
                 />
               </div>
             ))}
@@ -396,11 +488,20 @@ const App: React.FC = () => {
             disabled={isDownloadingAll}
             className="flex items-center gap-2 text-brand-600 font-semibold hover:text-brand-800 transition-colors"
           >
-            {isDownloadingAll ? 'Downloading...' : 'Download All'}
+            {isDownloadingAll ? 'Zipping...' : 'Download All (.zip)'}
             {!isDownloadingAll && <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>}
           </button>
         </div>
       )}
+
+      {/* Fullscreen Modal */}
+      <FullscreenModal 
+        isOpen={!!fullscreenImage}
+        onClose={() => setFullscreenImage(null)}
+        image={fullscreenImage}
+        aspectRatio={selectedRatio}
+      />
+
     </div>
   );
 };

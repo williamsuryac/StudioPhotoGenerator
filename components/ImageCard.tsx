@@ -9,6 +9,7 @@ interface ImageCardProps {
   frameUrl: string | null;
   onRegenerate: (id: string) => void;
   onRemove: (id: string) => void;
+  onFullscreen: (image: ProcessedImage) => void;
 }
 
 export const ImageCard: React.FC<ImageCardProps> = ({ 
@@ -16,7 +17,8 @@ export const ImageCard: React.FC<ImageCardProps> = ({
   aspectRatio, 
   frameUrl,
   onRegenerate, 
-  onRemove 
+  onRemove,
+  onFullscreen
 }) => {
   const [isDownloading, setIsDownloading] = useState(false);
 
@@ -26,7 +28,7 @@ export const ImageCard: React.FC<ImageCardProps> = ({
     try {
       const blob = await applyFrameAndExport(image.generatedUrl, frameUrl);
       if (blob) {
-        downloadBlob(blob, `studio-gen-${image.id}.png`);
+        downloadBlob(blob, `kana-enhancer-${image.id}.png`);
       }
     } catch (e) {
       console.error("Download failed", e);
@@ -36,9 +38,21 @@ export const ImageCard: React.FC<ImageCardProps> = ({
     }
   };
 
+  const showActions = image.status === 'completed' || (image.status === 'processing' && !!image.generatedUrl);
+
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-full">
+    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-full group">
       <div className="p-4 flex-grow relative">
+        
+        {/* Fullscreen Overlay Button (Top Right) - Visible on Hover */}
+        <button 
+            onClick={() => onFullscreen(image)}
+            className="absolute top-6 right-6 z-20 bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm"
+            title="View Fullscreen"
+        >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+        </button>
+
         {image.status === 'processing' && (
            <div className="absolute inset-0 z-20 bg-white/80 flex flex-col items-center justify-center backdrop-blur-sm rounded-t-xl">
              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-brand-600 mb-3"></div>
@@ -58,7 +72,7 @@ export const ImageCard: React.FC<ImageCardProps> = ({
            </div>
         )}
 
-        {image.generatedUrl && image.status === 'completed' ? (
+        {image.generatedUrl && (image.status === 'completed' || image.status === 'processing') ? (
           <ComparisonSlider 
             beforeImage={image.originalUrl}
             afterImage={image.generatedUrl}
@@ -85,8 +99,16 @@ export const ImageCard: React.FC<ImageCardProps> = ({
           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
         </button>
 
-        <div className="flex gap-2">
-            {image.status === 'completed' && (
+        <div className="flex gap-2 items-center">
+             {/* Mobile-friendly fullscreen button (visible only when actions are hidden or on mobile) */}
+             <button
+                onClick={() => onFullscreen(image)}
+                className="md:hidden text-gray-500 hover:text-gray-900 p-2"
+             >
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+             </button>
+
+            {showActions && (
                 <>
                 <button 
                     onClick={() => onRegenerate(image.id)}

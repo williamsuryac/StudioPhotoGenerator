@@ -1,3 +1,5 @@
+import JSZip from 'jszip';
+
 /**
  * Composes a frame overlay on top of a product image.
  * Returns a Promise resolving to a Blob.
@@ -54,4 +56,18 @@ export const applyFrameAndExport = async (
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
+
+  export const downloadZip = async (images: { blob: Blob; name: string }[]) => {
+    const zip = new JSZip();
+    
+    // Add images to folder
+    images.forEach((img) => {
+      zip.file(img.name, img.blob);
+    });
   
+    // Generate zip
+    const content = await zip.generateAsync({ type: 'blob' });
+    
+    // Download
+    downloadBlob(content, 'kana-enhancer-batch.zip');
+  };
