@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { AspectRatio } from "../types";
 
@@ -10,11 +11,10 @@ Keep the product's shape, texture, and colors true to life.
 export const generateProductImage = async (
   base64Image: string,
   mimeType: string,
-  ratio: AspectRatio,
-  apiKey: string
+  ratio: AspectRatio
 ): Promise<string> => {
   try {
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     // Using gemini-3-pro-image-preview (Nano Banana Pro) for high quality results
     const response = await ai.models.generateContent({

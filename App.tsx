@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { AspectRatio, ProcessedImage } from './types';
 import { ImageCard } from './components/ImageCard';
@@ -6,6 +7,25 @@ import { applyFrameAndExport, downloadBlob } from './utils/canvasUtils';
 
 // Simple UUID generator
 const simpleId = () => Math.random().toString(36).substring(2, 11);
+
+// Helper to safely get API key from various environment configurations without crashing
+const getEnvironmentApiKey = () => {
+  try {
+    // Check if process is defined (Node/Webpack/Next.js/CRA)
+    if (typeof process !== 'undefined' && process.env) {
+      return process.env.API_KEY || process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY || process.env.REACT_APP_GEMINI_API_KEY;
+    }
+    // Check for Vite environment variables
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      // @ts-ignore
+      return import.meta.env.VITE_API_KEY || import.meta.env.VITE_GEMINI_API_KEY;
+    }
+  } catch (e) {
+    console.warn("Error accessing environment variables:", e);
+  }
+  return undefined;
+};
 
 const App: React.FC = () => {
   const [hasKey, setHasKey] = useState(false);
@@ -34,30 +54,37 @@ const App: React.FC = () => {
   }, [frameFile]);
 
   const checkApiKey = async () => {
+    // 1. Check AI Studio (injected environment)
     if (window.aistudio) {
-      const selected = await window.aistudio.hasSelectedApiKey();
-      setHasKey(selected);
-    } else {
-       // Fallback for local development: Check for environment variables
-       if (process.env.API_KEY) {
-         setHasKey(true);
-       } else {
-         console.warn("window.aistudio not found and no API keys detected in environment.");
-       }
+      try {
+        const selected = await window.aistudio.hasSelectedApiKey();
+        setHasKey(selected);
+        return;
+      } catch (e) {
+        console.error("AI Studio check failed", e);
+      }
+    } 
+    
+    // 2. Fallback: Check environment variables safely
+    const envKey = getEnvironmentApiKey();
+    if (envKey) {
+      setHasKey(true);
     }
   };
 
   const handleKeySelection = async () => {
     if (window.aistudio) {
-      await window.aistudio.openSelectKey();
-      // Assume success as per instructions
-      setHasKey(true);
+      try {
+        await window.aistudio.openSelectKey();
+        setHasKey(true);
+      } catch (e) {
+        console.error("Failed to select key via AI Studio", e);
+      }
     }
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      // Explicitly cast to File[] to fix type inference issue
       const files = Array.from(e.target.files) as File[];
       const newImages: ProcessedImage[] = files.map(file => ({
         id: simpleId(),
@@ -66,7 +93,6 @@ const App: React.FC = () => {
         status: 'pending'
       }));
       setImages(prev => [...prev, ...newImages]);
-      // Reset input
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
@@ -83,17 +109,8 @@ const App: React.FC = () => {
   };
 
   const processImage = async (image: ProcessedImage) => {
-    const apiKey = process.env.API_KEY;
-
-    if (!apiKey) {
-       setImages(prev => prev.map(img => img.id === image.id ? { 
-        ...img, 
-        status: 'error', 
-        error: "API Key missing" 
-      } : img));
-      return;
-    }
-
+    // Rely on process.env.API_KEY being set (either via env vars or injected by AI Studio)
+    
     setImages(prev => prev.map(img => img.id === image.id ? { ...img, status: 'processing', error: undefined } : img));
 
     try {
@@ -101,8 +118,7 @@ const App: React.FC = () => {
       const generatedUrl = await generateProductImage(
         base64, 
         (image.originalFile as File).type, 
-        selectedRatio, 
-        apiKey
+        selectedRatio
       );
 
       setImages(prev => prev.map(img => img.id === image.id ? { 
@@ -156,7 +172,6 @@ const App: React.FC = () => {
            const blob = await applyFrameAndExport(img.generatedUrl, framePreviewUrl);
            if (blob) {
              downloadBlob(blob, `studio-gen-${img.id}.png`);
-             // Small delay to prevent browser blocking multiple downloads
              await new Promise(r => setTimeout(r, 200)); 
            }
         }
@@ -168,7 +183,6 @@ const App: React.FC = () => {
     }
   };
 
-  // If no key selected and not configured in env, show blocking UI
   if (!hasKey) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
@@ -178,24 +192,27 @@ const App: React.FC = () => {
           </div>
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Authentication Required</h1>
           <p className="text-gray-600 mb-6">
-            To use the professional studio generation features (Gemini 3 Pro), you need to select a valid API key associated with a paid Google Cloud project.
+            To use the professional studio generation features (Gemini 3 Pro), you need an API key.
           </p>
           {window.aistudio ? (
             <button 
                 onClick={handleKeySelection}
                 className="w-full bg-brand-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-brand-700 transition-colors shadow-lg shadow-brand-500/30"
             >
-                Select API Key
+                Select API Key via AI Studio
             </button>
           ) : (
-            <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm text-amber-800">
-                <p><strong>Environment Configuration Missing</strong></p>
-                <p className="mt-1">Please set <code>API_KEY</code> in your environment variables (e.g., .env.local).</p>
+            <div className="bg-amber-50 border border-amber-200 rounded-md p-4 text-sm text-left text-amber-900">
+                <p className="font-semibold mb-1">API Key Missing</p>
+                <p className="mb-2">If running on Vercel, please add <code>GEMINI_API_KEY</code> or <code>NEXT_PUBLIC_GEMINI_API_KEY</code> to your environment variables.</p>
+                <p className="text-xs text-amber-700 mt-2">
+                    Current environment: {typeof process !== 'undefined' ? 'Node-like' : 'Browser'}
+                </p>
             </div>
           )}
           <div className="mt-6 text-xs text-gray-400">
             <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="underline hover:text-gray-600">
-              Learn more about billing and API keys
+              Get an API Key
             </a>
           </div>
         </div>
@@ -215,11 +232,12 @@ const App: React.FC = () => {
             <h1 className="text-xl font-bold text-gray-900 tracking-tight">StudioGen <span className="text-brand-600">Pro</span></h1>
           </div>
           <div className="flex items-center gap-4">
-             <a href="#" className="text-sm font-medium text-gray-500 hover:text-gray-900">Documentation</a>
-             <div className="h-4 w-px bg-gray-300"></div>
+             <a href="#" className="text-sm font-medium text-gray-500 hover:text-gray-900 hidden sm:block">Documentation</a>
+             <div className="h-4 w-px bg-gray-300 hidden sm:block"></div>
              <div className="flex items-center gap-2 text-sm text-gray-600">
                 <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                Gemini 3 Pro Active
+                <span className="hidden sm:inline">Gemini 3 Pro Active</span>
+                <span className="sm:hidden">Active</span>
              </div>
           </div>
         </div>
