@@ -1,5 +1,5 @@
 {
-  "name": "StudioGen Pro",
+  "name": "KanaStudioPhoto",
   "description": "Transform product photos into professional studio-quality e-commerce images using Gemini 3 Pro. Features batch processing, custom aspect ratios, and frame overlays.",
   "requestFramePermissions": []
 }
